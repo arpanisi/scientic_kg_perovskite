@@ -13,5 +13,7 @@ pytest>=8,<9
 torch>=2.3,<3
 transformers>=4.45,<5
 accelerate>=0.34,<2
+peft>=0.13,<1
+bitsandbytes>=0.44,<1
 mlflow>=2.16,<4
 dvc>=3.50,<4
