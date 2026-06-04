@@ -1,0 +1,5 @@
+# Optional GPU kernel dependencies.
+# Install this only in CUDA environments such as Colab, Kaggle, or RunPod.
+# Keep Triton out of requirements.txt so macOS/CPU development remains portable.
+
+triton>=3.0,<4

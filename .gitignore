@@ -1,0 +1,13 @@
+.DS_Store
+Plan/
+.env
+__pycache__/
+.pytest_cache
+*.pyc
+.venv/
+data/**
+!data/
+!data/**/
+!data/**/.gitkeep
+!data/**/*.dvc
+test_scripts

@@ -1,0 +1,89 @@
+sft:
+  description: Supervised fine-tuning with next-token prediction.
+  data_format: prompt/completion examples
+  loss_signal: cross-entropy over assistant completion tokens
+  default_hyperparameters:
+    learning_rate: 2.0e-5
+    label_smoothing: 0.0
+    completion_only_loss: true
+  literature:
+    - title: "Language Models are Unsupervised Multitask Learners"
+      authors: "Radford et al."
+      year: 2019
+      note: "Autoregressive next-token prediction objective used by GPT-style models."
+    - title: "Training language models to follow instructions with human feedback"
+      authors: "Ouyang et al."
+      year: 2022
+      arxiv: "2203.02155"
+      note: "Instruction-tuning/SFT stage before preference optimization."
+  notes:
+    - Best first objective for JSONL prediction datasets.
+    - Works with full fine-tuning, partial fine-tuning, and PEFT methods.
+
+dpo:
+  description: Direct Preference Optimization from preferred/rejected output pairs.
+  data_format: prompt, chosen_completion, rejected_completion triples
+  loss_signal: preference loss between chosen and rejected completions
+  default_hyperparameters:
+    beta: 0.1
+    reference_model: frozen_base
+  literature:
+    - title: "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+      authors: "Rafailov et al."
+      year: 2023
+      arxiv: "2305.18290"
+  notes:
+    - Useful after SFT when you can construct better/worse prediction rationales.
+    - Requires preference pairs, not single supervised labels.
+
+rlvr_grpo:
+  description: Reinforcement learning with verifiable rewards, often optimized with GRPO-style group rewards.
+  data_format: prompt plus reward function/verifier
+  loss_signal: verifiable reward, such as valid JSON, physical consistency, or bin correctness
+  default_hyperparameters:
+    group_size: 4
+    kl_coefficient: 0.02
+    reward_normalization: group
+  literature:
+    - title: "DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models"
+      authors: "Shao et al."
+      year: 2024
+      arxiv: "2402.03300"
+      note: "Introduces GRPO-style group-relative policy optimization."
+    - title: "DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning"
+      authors: "DeepSeek-AI"
+      year: 2025
+      arxiv: "2501.12948"
+      note: "Popularized verifiable-reward RL for reasoning models."
+  notes:
+    - Good candidate for enforcing JSON validity and PCE ~= Voc*Jsc*FF.
+    - Needs a reliable reward function before it should be trusted.
+
+weighted_sft:
+  description: Supervised fine-tuning with field-importance weighted loss.
+  data_format: prompt/completion examples plus token or field weights
+  loss_signal: weighted cross-entropy over important output fields
+  default_hyperparameters:
+    default_weight: 1.0
+    field_weights:
+      prediction.pce_bin: 2.0
+      prediction.pce: 2.0
+      prediction.voc: 1.5
+      prediction.jsc: 1.5
+      prediction.ff: 1.5
+      confidence: 0.75
+      justification: 0.5
+  literature:
+    - title: "Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics"
+      authors: "Kendall, Gal, and Cipolla"
+      year: 2018
+      arxiv: "1705.07115"
+      note: "Representative work on weighting task losses by importance/uncertainty."
+    - title: "Focal Loss for Dense Object Detection"
+      authors: "Lin et al."
+      year: 2017
+      arxiv: "1708.02002"
+      note: "Representative example of reweighting loss toward important/hard examples."
+  notes:
+    - Best aligned with device-performance prediction where numeric fields matter most.
+    - Requires trainer support to map JSON fields to completion-token spans.

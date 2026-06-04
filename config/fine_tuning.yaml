@@ -1,0 +1,174 @@
+full:
+  family: full
+  description: Update all model weights directly.
+  trainable_scope: all model parameters
+  requires_quantization: false
+  default_hyperparameters:
+    learning_rate: 1.0e-5
+    weight_decay: 0.01
+    warmup_ratio: 0.03
+  literature:
+    - title: "Improving Language Understanding by Generative Pre-Training"
+      authors: "Radford et al."
+      year: 2018
+      note: "Canonical modern full fine-tuning of pretrained transformers for downstream tasks."
+    - title: "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding"
+      authors: "Devlin et al."
+      year: 2019
+      note: "Popularized full fine-tuning of pretrained transformer encoders."
+  notes:
+    - Highest capacity and highest memory cost.
+    - Most prone to overfitting on small or noisy scientific datasets.
+
+partial:
+  family: partial
+  description: Freeze selected layers and update only chosen modules.
+  trainable_scope: selected layers, heads, norms, or projection modules
+  requires_quantization: false
+  default_hyperparameters:
+    learning_rate: 5.0e-5
+    freeze_embeddings: true
+    train_last_n_layers: 4
+  literature:
+    - title: "Universal Language Model Fine-tuning for Text Classification"
+      authors: "Howard and Ruder"
+      year: 2018
+      note: "Layer freezing and gradual unfreezing as partial fine-tuning practice."
+    - title: "Parameter-Efficient Transfer Learning for NLP"
+      authors: "Houlsby et al."
+      year: 2019
+      note: "Motivates updating small subsets/modules instead of every base parameter."
+  notes:
+    - Useful when the base model already has strong general language ability.
+    - Layer-selection policy should be made explicit in the trainer.
+
+lora:
+  family: peft
+  description: Low-rank trainable updates added to selected weight matrices.
+  trainable_scope: LoRA matrices on target projection modules
+  requires_quantization: false
+  default_hyperparameters:
+    rank: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+  literature:
+    - title: "LoRA: Low-Rank Adaptation of Large Language Models"
+      authors: "Hu et al."
+      year: 2021
+      arxiv: "2106.09685"
+  notes:
+    - Good default PEFT baseline.
+    - Stores small task-specific adapters while keeping the base model frozen.
+
+qlora:
+  family: peft
+  description: LoRA training on top of a quantized frozen base model.
+  trainable_scope: LoRA matrices; quantized base model remains frozen
+  requires_quantization: true
+  default_hyperparameters:
+    rank: 16
+    alpha: 32
+    dropout: 0.05
+    quantization_bits: 4
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+  literature:
+    - title: "QLoRA: Efficient Finetuning of Quantized LLMs"
+      authors: "Dettmers et al."
+      year: 2023
+      arxiv: "2305.14314"
+  notes:
+    - Lower memory than LoRA with a full-precision base.
+    - Quantization backend support depends on hardware and trainer stack.
+
+dora:
+  family: peft
+  description: Decompose updates into magnitude and direction components.
+  trainable_scope: direction adapters plus trainable magnitude parameters
+  requires_quantization: false
+  default_hyperparameters:
+    rank: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+  literature:
+    - title: "DoRA: Weight-Decomposed Low-Rank Adaptation"
+      authors: "Liu et al."
+      year: 2024
+      arxiv: "2402.09353"
+  notes:
+    - Often stronger than plain LoRA at similar parameter counts.
+    - Requires backend support for DoRA-style adapter layers.
+
+adapters:
+  family: peft
+  description: Insert trainable bottleneck modules between frozen transformer layers.
+  trainable_scope: adapter bottleneck modules
+  requires_quantization: false
+  default_hyperparameters:
+    bottleneck_dim: 64
+    dropout: 0.05
+    placement: after_attention_and_mlp
+  literature:
+    - title: "Parameter-Efficient Transfer Learning for NLP"
+      authors: "Houlsby et al."
+      year: 2019
+      arxiv: "1902.00751"
+    - title: "AdapterFusion: Non-Destructive Task Composition for Transfer Learning"
+      authors: "Pfeiffer et al."
+      year: 2020
+      arxiv: "2005.00247"
+  notes:
+    - Clean separation between base model and task-specific modules.
+    - Adds inference-time layers unless merged or explicitly supported.
+
+prefix_tuning:
+  family: peft
+  description: Prepend trainable key/value prefix vectors while freezing model weights.
+  trainable_scope: prefix key/value parameters
+  requires_quantization: false
+  default_hyperparameters:
+    num_prefix_tokens: 32
+    prefix_projection: true
+    dropout: 0.05
+  literature:
+    - title: "Prefix-Tuning: Optimizing Continuous Prompts for Generation"
+      authors: "Li and Liang"
+      year: 2021
+      arxiv: "2101.00190"
+  notes:
+    - Good for steering generation behavior without modifying model weights.
+    - May be less expressive for precise numerical prediction than LoRA/DoRA.
+
+prompt_tuning:
+  family: peft
+  description: Train only soft prompt embeddings prepended to the input.
+  trainable_scope: soft prompt embedding parameters
+  requires_quantization: false
+  default_hyperparameters:
+    num_virtual_tokens: 32
+    initialization: text
+  literature:
+    - title: "The Power of Scale for Parameter-Efficient Prompt Tuning"
+      authors: "Lester, Al-Rfou, and Constant"
+      year: 2021
+      arxiv: "2104.08691"
+    - title: "GPT Understands, Too"
+      authors: "Liu et al."
+      year: 2021
+      arxiv: "2103.10385"
+  notes:
+    - Smallest trainable parameter count.
+    - Best used as a low-cost baseline, not the only serious candidate.
