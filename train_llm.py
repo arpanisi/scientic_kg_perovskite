@@ -51,26 +51,22 @@ class JsonlSFTDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         messages = self.records[index]["messages"]
-        prompt_text, full_text = format_sft_text(messages)
+        prompt_text, assistant_text = format_sft_text(messages)
 
         prompt_ids = self.tokenizer(
             prompt_text,
             add_special_tokens=False,
-            truncation=True,
-            max_length=self.max_length,
         )["input_ids"]
-        encoded = self.tokenizer(
-            full_text,
+        assistant_ids = self.tokenizer(
+            assistant_text,
             add_special_tokens=False,
-            truncation=True,
-            max_length=self.max_length,
-        )
+        )["input_ids"]
+        eos_id = self.tokenizer.eos_token_id
+        if eos_id is not None:
+            assistant_ids = assistant_ids + [eos_id]
 
-        input_ids = encoded["input_ids"]
-        attention_mask = encoded["attention_mask"]
-        labels = list(input_ids)
-        prompt_len = min(len(prompt_ids), len(labels))
-        labels[:prompt_len] = [-100] * prompt_len
+        input_ids, labels = completion_only_sequence(prompt_ids, assistant_ids, self.max_length)
+        attention_mask = [1] * len(input_ids)
 
         return {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
@@ -131,8 +127,31 @@ def format_sft_text(messages: Sequence[dict[str, str]]) -> tuple[str, str]:
         f"{user}\n"
         "<|assistant|>\n"
     )
-    full = f"{prompt}{assistant}"
-    return prompt, full
+    return prompt, assistant
+
+
+def completion_only_sequence(
+    prompt_ids: Sequence[int],
+    assistant_ids: Sequence[int],
+    max_length: int,
+) -> tuple[list[int], list[int]]:
+    """Build labels while preserving assistant tokens under truncation."""
+    if max_length < 2:
+        raise ValueError("max_length must be at least 2 for completion-only SFT.")
+
+    completion_ids = list(assistant_ids)
+    if not completion_ids:
+        raise ValueError("Assistant completion is empty; cannot build SFT labels.")
+
+    if len(completion_ids) >= max_length:
+        input_ids = completion_ids[:max_length]
+        return input_ids, list(input_ids)
+
+    prompt_budget = max_length - len(completion_ids)
+    kept_prompt_ids = list(prompt_ids)[-prompt_budget:] if prompt_budget > 0 else []
+    input_ids = kept_prompt_ids + completion_ids
+    labels = [-100] * len(kept_prompt_ids) + completion_ids
+    return input_ids, labels
 
 
 def pad_tensor(tensor: torch.Tensor, pad_length: int, pad_value: int) -> torch.Tensor:
