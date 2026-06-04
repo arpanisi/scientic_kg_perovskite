@@ -63,7 +63,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-update-method", choices=list_weight_update_names(), default=WeightUpdateMethod.SFT.value)
     parser.add_argument("--torch-dtype", choices=("auto", "float16", "bfloat16", "float32"), default="auto")
     parser.add_argument("--gradient-checkpointing", action="store_true")
-    parser.add_argument("--attn-implementation", default=None, help="Optional HF attention implementation, e.g. sdpa.")
+    parser.add_argument(
+        "--attention-backend",
+        choices=("hf_default", "eager", "sdpa", "flash_attention_2"),
+        default="hf_default",
+        help="Non-invasive Hugging Face attention backend ablation.",
+    )
+    parser.add_argument("--attn-implementation", default=None, help="Raw HF attn_implementation override.")
     parser.add_argument("--lora-r", type=int, default=None)
     parser.add_argument("--lora-alpha", type=int, default=None)
     parser.add_argument("--lora-dropout", type=float, default=None)

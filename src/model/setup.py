@@ -18,8 +18,9 @@ def load_model(args: argparse.Namespace):
     dtype = resolve_torch_dtype(args.torch_dtype)
     if dtype is not None:
         model_kwargs["torch_dtype"] = dtype
-    if args.attn_implementation:
-        model_kwargs["attn_implementation"] = args.attn_implementation
+    attention_implementation = resolve_attention_implementation(args)
+    if attention_implementation is not None:
+        model_kwargs["attn_implementation"] = attention_implementation
 
     if strategy.method == FineTuningMethod.QLORA:
         model_kwargs["quantization_config"] = qlora_quantization_config(dtype or torch.float16)
@@ -203,6 +204,19 @@ def resolve_torch_dtype(dtype_name: str) -> torch.dtype | None:
     if dtype_name == "float32":
         return torch.float32
     raise ValueError(f"Unsupported torch dtype: {dtype_name}")
+
+
+def resolve_attention_implementation(args: argparse.Namespace) -> str | None:
+    """Resolve non-invasive Hugging Face attention backend selection."""
+    if getattr(args, "attn_implementation", None):
+        return args.attn_implementation
+
+    backend = getattr(args, "attention_backend", "hf_default")
+    if backend == "hf_default":
+        return None
+    if backend in {"eager", "sdpa", "flash_attention_2"}:
+        return backend
+    raise ValueError(f"Unsupported attention backend: {backend}")
 
 
 def should_use_fp16(args: argparse.Namespace) -> bool:

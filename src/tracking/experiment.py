@@ -32,6 +32,8 @@ def log_mlflow_params(mlflow, args: argparse.Namespace, manifest: dict) -> None:
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
         "warmup_ratio": args.warmup_ratio,
+        "attention_backend": getattr(args, "attention_backend", None),
+        "attn_implementation": getattr(args, "attn_implementation", None),
         "loss_default_weight": getattr(args, "loss_default_weight", None),
         "num_prefix_tokens": getattr(args, "num_prefix_tokens", None),
         "num_virtual_tokens": getattr(args, "num_virtual_tokens", None),
