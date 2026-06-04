@@ -178,6 +178,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--epochs", type=float, default=1.0)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--eval-batch-size", type=int, default=None)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--weight-decay", type=float, default=0.0)
@@ -204,6 +205,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.eval_batch_size is None:
+        args.eval_batch_size = args.batch_size
     train_path, validation_path, test_path = data_paths(args.data_dir, args.dataset_prefix)
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True)
@@ -224,7 +227,7 @@ def main() -> None:
         output_dir=str(args.output_dir),
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.eval_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
@@ -459,6 +462,7 @@ def log_mlflow_params(mlflow, args: argparse.Namespace, manifest: dict) -> None:
         "max_length": args.max_length,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
+        "eval_batch_size": args.eval_batch_size,
         "gradient_accumulation_steps": args.gradient_accumulation_steps,
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
