@@ -38,10 +38,16 @@ def configure_fine_tuning(model, args: argparse.Namespace):
         return model
     if strategy.method in {FineTuningMethod.LORA, FineTuningMethod.QLORA, FineTuningMethod.DORA}:
         return configure_lora_like_fine_tuning(model, args, strategy)
+    if strategy.method == FineTuningMethod.PREFIX_TUNING:
+        return configure_prefix_tuning(model, args, strategy)
+    if strategy.method == FineTuningMethod.PROMPT_TUNING:
+        return configure_prompt_tuning(model, args, strategy)
+    if strategy.method == FineTuningMethod.ADAPTERS:
+        return configure_bottleneck_adapters(model, strategy)
 
     raise NotImplementedError(
         f"{strategy.method.value} is documented in config/fine_tuning.yaml, "
-        "but train_llm.py currently implements full, partial, lora, qlora, and dora."
+        "but train_llm.py does not implement it yet."
     )
 
 
@@ -94,6 +100,57 @@ def configure_lora_like_fine_tuning(model, args: argparse.Namespace, strategy):
     model = get_peft_model(model, peft_config)
     print_trainable_parameters(model)
     return model
+
+
+def configure_prefix_tuning(model, args: argparse.Namespace, strategy):
+    try:
+        from peft import PrefixTuningConfig, TaskType, get_peft_model
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("prefix_tuning requires peft. Install requirements.txt or run: pip install peft") from exc
+
+    defaults = strategy.default_hyperparameters
+    peft_config = PrefixTuningConfig(
+        task_type=TaskType.CAUSAL_LM,
+        num_virtual_tokens=args.num_prefix_tokens or int(defaults.get("num_prefix_tokens", 32)),
+        prefix_projection=bool(defaults.get("prefix_projection", True)),
+    )
+    model = get_peft_model(model, peft_config)
+    print_trainable_parameters(model)
+    return model
+
+
+def configure_prompt_tuning(model, args: argparse.Namespace, strategy):
+    try:
+        from peft import PromptTuningConfig, PromptTuningInit, TaskType, get_peft_model
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("prompt_tuning requires peft. Install requirements.txt or run: pip install peft") from exc
+
+    defaults = strategy.default_hyperparameters
+    init_mode = str(defaults.get("initialization", "text")).lower()
+    config_kwargs: dict[str, Any] = {
+        "task_type": TaskType.CAUSAL_LM,
+        "num_virtual_tokens": args.num_virtual_tokens or int(defaults.get("num_virtual_tokens", 32)),
+    }
+    if init_mode == "text":
+        config_kwargs.update(
+            {
+                "prompt_tuning_init": PromptTuningInit.TEXT,
+                "prompt_tuning_init_text": args.prompt_init_text or "Predict perovskite solar-cell JV performance.",
+                "tokenizer_name_or_path": args.model_name,
+            }
+        )
+
+    model = get_peft_model(model, PromptTuningConfig(**config_kwargs))
+    print_trainable_parameters(model)
+    return model
+
+
+def configure_bottleneck_adapters(model, strategy):
+    raise NotImplementedError(
+        "The configured adapters method describes Houlsby-style bottleneck adapters. "
+        "That is not implemented through the current Hugging Face PEFT/Qwen path yet; "
+        "use lora, qlora, dora, prefix_tuning, or prompt_tuning for current ablations."
+    )
 
 
 def qlora_quantization_config(compute_dtype: torch.dtype):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import csv
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,17 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
+    return path
+
+
+def write_flat_csv(path: Path, payload: Mapping[str, Any]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flattened = flatten_metrics(payload)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(("metric", "value"))
+        for key in sorted(flattened):
+            writer.writerow((key, flattened[key]))
     return path
 
 
@@ -125,9 +137,12 @@ def compute_metrics(records: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         "rows": total,
         "json_validity_rate": safe_rate(sum(payload is not None for payload in predicted_payloads), total),
         "ground_truth_validity_rate": safe_rate(sum(payload is not None for payload in truth_payloads), total),
+        "field_validity": field_validity_metrics(predictions, truths),
         "field_metrics": field_metrics,
         "physical_consistency": physical_consistency_metrics(predictions),
         "bin_accuracy": bin_accuracy_metrics(predictions, truths),
+        "bin_confusion": bin_confusion_matrices(predictions, truths),
+        "pce_subgroups": pce_subgroup_metrics(predictions, truths),
         "missing_prediction_rate": missing_prediction_rates(predictions),
     }
 
@@ -189,6 +204,95 @@ def bin_accuracy_metrics(
     return results
 
 
+def field_validity_metrics(
+    predictions: list[Mapping[str, float | None]],
+    truths: list[Mapping[str, float | None]],
+) -> dict[str, dict[str, float | int | None]]:
+    total = len(predictions)
+    results = {}
+    for field in METRIC_FIELDS:
+        predicted_count = sum(prediction.get(field) is not None for prediction in predictions)
+        truth_count = sum(truth.get(field) is not None for truth in truths)
+        comparable_count = sum(
+            prediction.get(field) is not None and truth.get(field) is not None
+            for prediction, truth in zip(predictions, truths)
+        )
+        results[field] = {
+            "predicted_count": predicted_count,
+            "truth_count": truth_count,
+            "comparable_count": comparable_count,
+            "prediction_validity_rate": safe_rate(predicted_count, total),
+            "truth_validity_rate": safe_rate(truth_count, total),
+            "comparable_rate": safe_rate(comparable_count, total),
+        }
+    return results
+
+
+def bin_confusion_matrices(
+    predictions: list[Mapping[str, float | None]],
+    truths: list[Mapping[str, float | None]],
+) -> dict[str, dict[str, dict[str, int]]]:
+    matrices = {}
+    for field in METRIC_FIELDS:
+        labels = bin_labels(field)
+        matrix = {truth_label: {pred_label: 0 for pred_label in labels} for truth_label in labels}
+        for prediction, truth in zip(predictions, truths):
+            pred_value = prediction.get(field)
+            truth_value = truth.get(field)
+            if pred_value is None or truth_value is None:
+                continue
+            truth_bin = make_bin(field, float(truth_value))
+            pred_bin = make_bin(field, float(pred_value))
+            matrix.setdefault(truth_bin, {})
+            matrix[truth_bin][pred_bin] = matrix[truth_bin].get(pred_bin, 0) + 1
+        matrices[field] = matrix
+    return matrices
+
+
+def bin_labels(field: str) -> list[str]:
+    edges = BIN_EDGES[field]
+    labels = [f"{low:g}-{high:g}" for low, high in zip(edges, edges[1:])]
+    return [f"<{edges[0]:g}", *labels, f"{edges[-1]:g}+"]
+
+
+def pce_subgroup_metrics(
+    predictions: list[Mapping[str, float | None]],
+    truths: list[Mapping[str, float | None]],
+) -> dict[str, dict[str, Any]]:
+    subgroups = {
+        "low_pce_lt_5": [],
+        "mid_pce_5_to_15": [],
+        "high_pce_gte_15": [],
+    }
+    for prediction, truth in zip(predictions, truths):
+        truth_pce = truth.get("pce")
+        if truth_pce is None:
+            continue
+        if truth_pce < 5.0:
+            subgroups["low_pce_lt_5"].append((truth, prediction))
+        elif truth_pce < 15.0:
+            subgroups["mid_pce_5_to_15"].append((truth, prediction))
+        else:
+            subgroups["high_pce_gte_15"].append((truth, prediction))
+
+    results = {}
+    for name, pairs in subgroups.items():
+        subgroup_truths = [truth for truth, _ in pairs]
+        subgroup_predictions = [prediction for _, prediction in pairs]
+        results[name] = {
+            "rows": len(pairs),
+            "field_metrics": {
+                field: regression_metrics(
+                    [truth[field] for truth in subgroup_truths],
+                    [prediction[field] for prediction in subgroup_predictions],
+                ).__dict__
+                for field in METRIC_FIELDS
+            },
+            "bin_accuracy": bin_accuracy_metrics(subgroup_predictions, subgroup_truths),
+        }
+    return results
+
+
 def missing_prediction_rates(predictions: list[Mapping[str, float | None]]) -> dict[str, float | None]:
     total = len(predictions)
     return {
@@ -203,8 +307,25 @@ def safe_rate(numerator: int, denominator: int) -> float | None:
     return numerator / denominator
 
 
-def evaluate_predictions_file(predictions_path: Path, output_path: Path | None = None) -> dict[str, Any]:
+def flatten_metrics(payload: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
+    flattened = {}
+    for key, value in payload.items():
+        name = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, Mapping):
+            flattened.update(flatten_metrics(value, name))
+        elif isinstance(value, (int, float, str)) or value is None:
+            flattened[name] = value
+    return flattened
+
+
+def evaluate_predictions_file(
+    predictions_path: Path,
+    output_path: Path | None = None,
+    csv_output_path: Path | None = None,
+) -> dict[str, Any]:
     metrics = compute_metrics(read_jsonl(predictions_path))
     if output_path is not None:
         write_json(output_path, metrics)
+    if csv_output_path is not None:
+        write_flat_csv(csv_output_path, metrics)
     return metrics
