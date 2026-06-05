@@ -45,6 +45,15 @@ from src.training.weight_update import WeightUpdateMethod, get_weight_update, li
 DEFAULT_DATA_DIR = Path("data/processed/fine_tuning")
 DEFAULT_DATASET_PREFIX = "core_rare__performance_with_justification"
 DEFAULT_RECIPE_GENERATION_PREFIX = "recipe_generation"
+RECIPE_TOP_LEVEL_KEYS = {"recipe", "constraints_satisfied"}
+RECIPE_SECTION_KEYS = {"composition", "device_stack", "deposition", "transport_layers"}
+CONSTRAINT_KEYS = {
+    "lead_free",
+    "no_chlorinated_solvents",
+    "has_composition",
+    "has_device_stack",
+    "has_deposition_process",
+}
 CHLORINATED_SOLVENT_TERMS = (
     "chlorobenzene",
     "dichlorobenzene",
@@ -303,7 +312,7 @@ def recipe_generation_example(row: dict[str, str], recipe: dict, split_key: str)
                 "role": "system",
                 "content": (
                     "You generate perovskite solar-cell recipe candidates from target constraints. "
-                    "Return only valid JSON with recipe, constraints_satisfied, and rationale fields."
+                    "Return exactly one valid JSON object and nothing else."
                 ),
             },
             {"role": "user", "content": recipe_generation_prompt(row)},
@@ -339,7 +348,14 @@ def recipe_generation_prompt(row: dict[str, str]) -> str:
     lines.extend(
         [
             "",
-            "Return valid JSON only. Include recipe, constraints_satisfied, and rationale.",
+            "Return exactly one JSON object.",
+            "Do not write markdown.",
+            "Do not write code.",
+            "Do not write comments.",
+            "Do not write text after the JSON.",
+            "Use only these top-level keys: recipe, constraints_satisfied.",
+            "recipe must contain only: composition, device_stack, deposition, transport_layers.",
+            "constraints_satisfied must contain only: lead_free, no_chlorinated_solvents, has_composition, has_device_stack, has_deposition_process.",
             "Do not include measured JV target values in the recipe.",
         ]
     )
@@ -399,28 +415,7 @@ def recipe_payload_from_row(row: dict[str, str]) -> dict:
             "has_device_stack": bool(normalize_value(row.get("Cell_stack_sequence"))),
             "has_deposition_process": bool(normalize_value(row.get("Perovskite_deposition_procedure"))),
         },
-        "rationale": recipe_rationale(row, lead_free, chlorinated),
     }
-
-
-def recipe_rationale(row: dict[str, str], lead_free: bool | None, chlorinated: bool) -> list[str]:
-    rationale = []
-    composition = normalize_value(row.get("Perovskite_composition_long_form")) or normalize_value(
-        row.get("Perovskite_composition_short_form")
-    )
-    if composition:
-        rationale.append(f"The absorber composition is specified as {composition}.")
-    architecture = normalize_value(row.get("Cell_architecture"))
-    if architecture:
-        rationale.append(f"The device architecture is {architecture}.")
-    deposition = normalize_value(row.get("Perovskite_deposition_procedure"))
-    if deposition:
-        rationale.append(f"The perovskite deposition method is {deposition}.")
-    if lead_free is True:
-        rationale.append("The composition is marked as lead-free in the source recipe.")
-    if not chlorinated:
-        rationale.append("No chlorinated solvent term was detected in the recipe solvent fields.")
-    return rationale[:5]
 
 
 def recipe_has_minimum_content(recipe: dict) -> bool:
@@ -513,7 +508,9 @@ def evaluate_recipe_generation_predictions(predictions_path: Path, metrics_path:
     required_recipe = 0
     constraints_present = 0
     all_constraint_flags_true = 0
-    rationale_present = 0
+    allowed_top_level_keys = 0
+    fixed_recipe_sections = 0
+    fixed_constraint_keys = 0
     no_chlorinated_solvents = 0
     lead_free_true = 0
 
@@ -527,31 +524,37 @@ def evaluate_recipe_generation_predictions(predictions_path: Path, metrics_path:
             if not isinstance(payload, dict):
                 continue
             valid_json += 1
+            if set(payload) <= RECIPE_TOP_LEVEL_KEYS:
+                allowed_top_level_keys += 1
             recipe = payload.get("recipe")
-            if isinstance(recipe, dict) and recipe_has_minimum_content(payload):
-                required_recipe += 1
+            if isinstance(recipe, dict):
+                if set(recipe) == RECIPE_SECTION_KEYS:
+                    fixed_recipe_sections += 1
+                if recipe_has_minimum_content(payload):
+                    required_recipe += 1
             constraints = payload.get("constraints_satisfied")
             if isinstance(constraints, dict):
                 constraints_present += 1
+                if set(constraints) == CONSTRAINT_KEYS:
+                    fixed_constraint_keys += 1
                 if constraints and all(value is True for value in constraints.values() if isinstance(value, bool)):
                     all_constraint_flags_true += 1
                 if constraints.get("no_chlorinated_solvents") is True:
                     no_chlorinated_solvents += 1
                 if constraints.get("lead_free") is True:
                     lead_free_true += 1
-            rationale = payload.get("rationale")
-            if isinstance(rationale, list) and rationale:
-                rationale_present += 1
 
     metrics = {
         "rows": total,
         "json_validity_rate": safe_rate(valid_json, total),
+        "allowed_top_level_keys_rate": safe_rate(allowed_top_level_keys, total),
         "required_recipe_rate": safe_rate(required_recipe, total),
+        "fixed_recipe_sections_rate": safe_rate(fixed_recipe_sections, total),
         "constraints_present_rate": safe_rate(constraints_present, total),
+        "fixed_constraint_keys_rate": safe_rate(fixed_constraint_keys, total),
         "all_constraint_flags_true_rate": safe_rate(all_constraint_flags_true, total),
         "no_chlorinated_solvents_rate": safe_rate(no_chlorinated_solvents, total),
         "lead_free_true_rate": safe_rate(lead_free_true, total),
-        "rationale_present_rate": safe_rate(rationale_present, total),
     }
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True), encoding="utf-8")
