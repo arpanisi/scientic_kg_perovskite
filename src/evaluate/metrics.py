@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from src.data.prepare_outputs import BIN_EDGES, make_bin
+from src.evaluate.physics import verify_prediction_payload
 
 
 METRIC_FIELDS = ("pce", "voc", "jsc", "ff")
@@ -124,6 +125,7 @@ def compute_metrics(records: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 
     predictions = [extract_prediction_values(payload) for payload in predicted_payloads]
     truths = [extract_prediction_values(payload) for payload in truth_payloads]
+    physics_checks = [verify_prediction_payload(payload) for payload in predicted_payloads]
 
     field_metrics = {
         field: regression_metrics(
@@ -140,6 +142,7 @@ def compute_metrics(records: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         "field_validity": field_validity_metrics(predictions, truths),
         "field_metrics": field_metrics,
         "physical_consistency": physical_consistency_metrics(predictions),
+        "physics_verification": physics_verification_metrics(physics_checks, total),
         "bin_accuracy": bin_accuracy_metrics(predictions, truths),
         "bin_confusion": bin_confusion_matrices(predictions, truths),
         "pce_subgroups": pce_subgroup_metrics(predictions, truths),
@@ -180,6 +183,41 @@ def physical_consistency_metrics(predictions: list[Mapping[str, float | None]]) 
         "mae": sum(errors) / len(errors),
         "max": max(errors),
     }
+
+
+def physics_verification_metrics(checks: list[Mapping[str, Any]], total: int) -> dict[str, Any]:
+    inconsistent = sum(bool(check.get("physically_inconsistent")) for check in checks)
+    schema_invalid = sum(not bool(check.get("schema_valid")) for check in checks)
+    consistency_errors = [
+        float(check["pce_consistency_error"])
+        for check in checks
+        if check.get("pce_consistency_error") is not None
+    ]
+    range_violations = violation_counts(checks, "range_violations")
+    invalid_bins = violation_counts(checks, "invalid_bin_labels")
+    bin_mismatches = violation_counts(checks, "bin_mismatches")
+
+    return {
+        "physically_inconsistent_count": inconsistent,
+        "physically_inconsistent_rate": safe_rate(inconsistent, total),
+        "schema_invalid_count": schema_invalid,
+        "schema_invalid_rate": safe_rate(schema_invalid, total),
+        "pce_consistency_count": len(consistency_errors),
+        "pce_consistency_mae": safe_mean(consistency_errors),
+        "pce_consistency_max": max(consistency_errors) if consistency_errors else None,
+        "range_violations": range_violations,
+        "invalid_bin_labels": invalid_bins,
+        "bin_mismatches": bin_mismatches,
+    }
+
+
+def violation_counts(checks: list[Mapping[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for check in checks:
+        for violation in check.get(key, []) or []:
+            field = str(violation.get("field", "unknown"))
+            counts[field] = counts.get(field, 0) + 1
+    return counts
 
 
 def bin_accuracy_metrics(
@@ -305,6 +343,12 @@ def safe_rate(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
     return numerator / denominator
+
+
+def safe_mean(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
 
 
 def flatten_metrics(payload: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:

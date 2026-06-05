@@ -38,6 +38,7 @@ def log_mlflow_params(mlflow, args: argparse.Namespace, manifest: dict) -> None:
         "num_prefix_tokens": getattr(args, "num_prefix_tokens", None),
         "num_virtual_tokens": getattr(args, "num_virtual_tokens", None),
         "prompt_init_text": getattr(args, "prompt_init_text", None),
+        "generation_batch_size": getattr(args, "generation_batch_size", None),
         "seed": args.seed,
         "git_commit": manifest.get("git_commit"),
         "dvc_dataset_hash": manifest.get("dvc_dataset_hash"),
