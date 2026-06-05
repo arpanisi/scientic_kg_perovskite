@@ -4,7 +4,8 @@ This script orchestrates:
 
 1. Recipe-generation SFT via train_llm.py
 2. Held-out generation evaluation from train_llm.py
-3. Inverse-design evaluation via evaluate_inverse_design.py
+3. Optional RLVR/GRPO adapter update from the SFT adapter
+4. Inverse-design evaluation via evaluate_inverse_design.py
 
 It is a root-level experiment runner so Kaggle can execute it after git pull.
 """
@@ -59,6 +60,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generation-max-new-tokens", type=int, default=512)
     parser.add_argument("--generation-batch-size", type=int, default=4)
 
+    parser.add_argument("--run-rlvr", action="store_true", help="Run GRPO/RLVR after SFT and evaluate RLVR outputs.")
+    parser.add_argument("--rlvr-output-dir", type=Path, default=None)
+    parser.add_argument("--rlvr-max-prompts", type=int, default=512)
+    parser.add_argument("--rlvr-epochs", type=float, default=1.0)
+    parser.add_argument("--rlvr-learning-rate", type=float, default=5e-6)
+    parser.add_argument("--rlvr-num-generations", type=int, default=4)
+    parser.add_argument("--rlvr-batch-size", type=int, default=1)
+    parser.add_argument("--rlvr-gradient-accumulation-steps", type=int, default=8)
+    parser.add_argument("--rlvr-load-in-4bit", action="store_true")
+
     parser.add_argument(
         "--oracle-model",
         choices=("ridge", "random_forest", "extra_trees", "gradient_boosting", "hist_gradient_boosting", "xgboost"),
@@ -87,12 +98,22 @@ def main() -> None:
         run_command(train_command(args), cwd=REPO_ROOT)
 
     if not args.skip_inverse_eval:
-        predictions = args.output_dir / "evaluation" / "test_predictions.jsonl"
         train_jsonl = args.output_dir / "generated_data" / "recipe_generation.train.jsonl"
-        if not predictions.exists():
-            raise FileNotFoundError(f"Missing generated predictions: {predictions}")
+        test_jsonl = args.output_dir / "generated_data" / "recipe_generation.test.jsonl"
         if not train_jsonl.exists():
             raise FileNotFoundError(f"Missing generated train JSONL: {train_jsonl}")
+        if not test_jsonl.exists():
+            raise FileNotFoundError(f"Missing generated test JSONL: {test_jsonl}")
+
+        if args.run_rlvr:
+            rlvr_dir = args.rlvr_output_dir or args.output_dir / "rlvr"
+            run_command(rlvr_command(args, train_jsonl, test_jsonl, rlvr_dir), cwd=REPO_ROOT)
+            predictions = rlvr_dir / "evaluation" / "test_predictions.jsonl"
+        else:
+            predictions = args.output_dir / "evaluation" / "test_predictions.jsonl"
+
+        if not predictions.exists():
+            raise FileNotFoundError(f"Missing generated predictions: {predictions}")
         run_command(inverse_eval_command(args, predictions, train_jsonl), cwd=REPO_ROOT)
 
 
@@ -180,6 +201,59 @@ def inverse_eval_command(args: argparse.Namespace, predictions: Path, train_json
     ]
     if args.external_holdout_jsonl is not None:
         command.extend(["--external-holdout-jsonl", str(args.external_holdout_jsonl)])
+    return command
+
+
+def rlvr_command(args: argparse.Namespace, train_jsonl: Path, test_jsonl: Path, rlvr_dir: Path) -> list[str]:
+    command = [
+        sys.executable,
+        "train_rlvr.py",
+        "--model-name",
+        args.model_name,
+        "--sft-adapter-dir",
+        str(args.output_dir / "final"),
+        "--train-jsonl",
+        str(train_jsonl),
+        "--eval-jsonl",
+        str(test_jsonl),
+        "--source-csv",
+        str(args.source_csv),
+        "--output-dir",
+        str(rlvr_dir),
+        "--oracle-model",
+        args.oracle_model,
+        "--oracle-representation",
+        args.oracle_representation,
+        "--max-prompts",
+        str(args.rlvr_max_prompts),
+        "--epochs",
+        str(args.rlvr_epochs),
+        "--learning-rate",
+        str(args.rlvr_learning_rate),
+        "--num-generations",
+        str(args.rlvr_num_generations),
+        "--batch-size",
+        str(args.rlvr_batch_size),
+        "--gradient-accumulation-steps",
+        str(args.rlvr_gradient_accumulation_steps),
+        "--max-prompt-length",
+        str(args.max_length),
+        "--max-completion-length",
+        str(args.generation_max_new_tokens),
+        "--generation-max-new-tokens",
+        str(args.generation_max_new_tokens),
+        "--generation-batch-size",
+        str(args.generation_batch_size),
+        "--generation-limit",
+        str(args.generation_limit),
+        "--torch-dtype",
+        args.torch_dtype,
+        "--run-generation-eval",
+    ]
+    if args.rlvr_load_in_4bit:
+        command.append("--load-in-4bit")
+    if args.gradient_checkpointing:
+        command.append("--gradient-checkpointing")
     return command
 
 
