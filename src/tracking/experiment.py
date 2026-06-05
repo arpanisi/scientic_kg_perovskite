@@ -32,10 +32,19 @@ def log_mlflow_params(mlflow, args: argparse.Namespace, manifest: dict) -> None:
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
         "warmup_ratio": args.warmup_ratio,
+        "attention_backend": getattr(args, "attention_backend", None),
+        "attn_implementation": getattr(args, "attn_implementation", None),
+        "loss_default_weight": getattr(args, "loss_default_weight", None),
+        "num_prefix_tokens": getattr(args, "num_prefix_tokens", None),
+        "num_virtual_tokens": getattr(args, "num_virtual_tokens", None),
+        "prompt_init_text": getattr(args, "prompt_init_text", None),
+        "generation_batch_size": getattr(args, "generation_batch_size", None),
         "seed": args.seed,
         "git_commit": manifest.get("git_commit"),
         "dvc_dataset_hash": manifest.get("dvc_dataset_hash"),
     }
+    for index, override in enumerate(getattr(args, "loss_field_weight", []) or []):
+        params[f"loss_field_weight_override_{index}"] = override
     for split, info in manifest["splits"].items():
         params[f"{split}_sha256"] = info["sha256"]
         params[f"{split}_rows"] = info["rows"]
