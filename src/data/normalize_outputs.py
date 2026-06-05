@@ -118,6 +118,8 @@ FIXED_SCHEMA: dict = {
         "extraction_model": None,
         "extraction_timestamp": None,
         "grounding_score": None,
+        "si_referenced": False,
+        "si_merged": False,
         "has_si": False,
         "si_fields": [],
     },

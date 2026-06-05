@@ -27,6 +27,15 @@
     - "arcee-ai/trinity-large-thinking:free"
     - "baidu/cobuddy:free"
 
+  # Self-consistency: number of extraction runs (majority vote). 1 = disabled.
+  # Each run costs one extra LLM call. 2 is the minimum useful value.
+  consistency_runs: 2
+
+  # PHCS: paraphrased probe verification on high-risk fields after extraction.
+  # Adds ~2 short LLM calls per high-risk field (temperature, precursors, etc.)
+  # phcs_stable: true/false is written to each probed field in the output.
+  run_phcs: true
+
   # Vision-language models — for figure description (XRD, SEM, J-V curves, etc.)
   vlm_model: "google/gemma-4-31b-it:free"
 
