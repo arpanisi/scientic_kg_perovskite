@@ -1,13 +1,62 @@
 .DS_Store
+**/.DS_Store
+.idea/
 Plan/
+docs/
 .env
+
+# Python
 __pycache__/
-.pytest_cache
-*.pyc
+**/__pycache__/
+.pytest_cache/
+*.py[cod]
+*$py.class
 .venv/
+venv/
+env/
+
+# Data and local experiment outputs
 data/**
 !data/
 !data/**/
 !data/**/.gitkeep
 !data/**/*.dvc
-test_scripts
+*.log
+runs/
+outputs/
+checkpoints/
+models/
+mlruns/
+wandb/
+research-paper/
+
+# Local scripts not intended for the public repo
+test_scripts/
+agentic-scripts/
+notebooks/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.xdv
+*.nav
+*.snm
+*.vrb
+*.synctex(busy)
+
+# Generated paper artifacts
+research-paper/main.pdf
+research-paper/figures/results-reward-share-ternary.png
+
+# Empty/stale folders from local reorganizations
+aria/
